@@ -4,11 +4,14 @@ final class MenuBarController: NSObject {
     private let appState: AppState
     
     private var statusBarItem: NSStatusItem?
+    
     private var enabledMenuItem: NSMenuItem?
     private var statusMenuItem: NSMenuItem?
+    private var accessibilitySettingsMenuItem: NSMenuItem?
     
     var onEnabledChanged: (() -> Void)?
     var onRestoreForceClickSetting: (() -> Void)?
+    var onOpenAccessibilitySettings: (() -> Void)?
     
     init(appState: AppState) {
         self.appState = appState
@@ -57,6 +60,15 @@ final class MenuBarController: NSObject {
         )
         restoreItem.target = self
         menu.addItem(restoreItem)
+        
+        let accessibilitySettingsItem = NSMenuItem(
+            title: "Open Accessibility Settings",
+            action: #selector(openAccessibilitySettings),
+            keyEquivalent: ""
+        )
+        accessibilitySettingsItem.target = self
+        menu.addItem(accessibilitySettingsItem)
+        self.accessibilitySettingsMenuItem = accessibilitySettingsItem
 
         menu.addItem(.separator())
         
@@ -90,7 +102,21 @@ final class MenuBarController: NSObject {
         onEnabledChanged?()
     }
     
+    @objc
+    private func openAccessibilitySettings() {
+        onOpenAccessibilitySettings?()
+    }
+    
     func updateStatus(_ status: String) {
         statusMenuItem?.title = "Status: \(status)"
+    }
+    
+    func updatePermissionStatus(isTrusted: Bool) {
+        if !isTrusted {
+            updateStatus("Permission required")
+            accessibilitySettingsMenuItem?.isHidden = false
+        } else {
+            accessibilitySettingsMenuItem?.isHidden = true
+        }
     }
 }

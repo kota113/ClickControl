@@ -73,8 +73,6 @@ Subscribe to CGEvent raw type 29
 
 See [logic.md](logic.md) for the event analysis and raw value notes.
 
-`ForceClickDetector` and `MultitouchEngine` are retained as an unused MultitouchSupport-based implementation for reference.
-
 ## Build
 
 Open the project in Xcode:

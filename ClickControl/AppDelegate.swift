@@ -8,16 +8,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let forceClickPressureMonitor = ForceClickPressureMonitor()
     private let syntheticClickSender = SyntheticClickSender()
     private let trackpadSettingsController = TrackpadSettingsController()
+    private let permissionController = PermissionController()
+    private var permissionRefreshTimer: Timer?
+    private var isFrontmostAppObservationStarted = false
  
     func applicationDidFinishLaunching(_ notification: Notification) {
         menuBarController = MenuBarController(appState: appState)
+        menuBarController?.onOpenAccessibilitySettings = { [weak self] in
+            self?.permissionController.openAccessibilitySettings()
+            self?.startPermissionRefreshTimerIfNeeded()
+        }
         menuBarController?.onEnabledChanged = { [weak self] in
             self?.updateFrontmostAppStatus()
         }
         menuBarController?.onRestoreForceClickSetting = { [weak self] in
             self?.restoreForceClickSetting()
         }
-        menuBarController?.updateStatus("Ready")
 
         forceClickPressureMonitor.onForceClickBegan = { [weak self] in
             self?.handleForceClickBegan()
@@ -25,19 +31,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         forceClickPressureMonitor.onForceClickEnded = { [weak self] in
             self?.handleForceClickEnded(sendMouseUp: true)
         }
+
+        if !permissionController.isTrusted() {
+            permissionController.requestTrustPrompt()
+        }
+
+        refreshPermissionStatus()
+        startPermissionRefreshTimerIfNeeded()
+
+        if permissionController.isTrusted() {
+            startMonitoring()
+        }
+    }
+
+    private func refreshPermissionStatus() {
+        let isTrusted = permissionController.isTrusted()
+
+        menuBarController?.updatePermissionStatus(isTrusted: isTrusted)
+
+        if !isTrusted {
+            menuBarController?.updateStatus("Permission required")
+        }
+    }
+
+    private func startPermissionRefreshTimerIfNeeded() {
+        guard !permissionController.isTrusted() else {
+            permissionRefreshTimer?.invalidate()
+            permissionRefreshTimer = nil
+            return
+        }
+
+        guard permissionRefreshTimer == nil else {
+            return
+        }
+
+        permissionRefreshTimer = Timer.scheduledTimer(
+            withTimeInterval: 1.0,
+            repeats: true
+        ) { [weak self] _ in
+            guard let self else {
+                return
+            }
+
+            guard self.permissionController.isTrusted() else {
+                return
+            }
+
+            self.permissionRefreshTimer?.invalidate()
+            self.permissionRefreshTimer = nil
+            self.refreshPermissionStatus()
+            self.startMonitoring()
+        }
+    }
+
+    private func startMonitoring() {
         forceClickPressureMonitor.start()
-        
         startFrontmostAppObservation()
         updateFrontmostAppStatus()
     }
     
     private func startFrontmostAppObservation() {
+        guard !isFrontmostAppObservationStarted else {
+            return
+        }
+
         NSWorkspace.shared.notificationCenter.addObserver(
             self,
             selector: #selector(frontmostAppDidChange),
             name: NSWorkspace.didActivateApplicationNotification,
             object: nil
         )
+        isFrontmostAppObservationStarted = true
     }
     
     @objc
@@ -46,6 +110,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func updateFrontmostAppStatus() {
+        guard permissionController.isTrusted() else {
+            menuBarController?.updateStatus("Permission required")
+            return
+        }
+
         let bundleId = frontmostAppGate.currentBundleIdentifier()
         let isTarget = frontmostAppGate.isTargetBrowserActive()
 
@@ -99,12 +168,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationWillTerminate(_ notification: Notification) {
+        permissionRefreshTimer?.invalidate()
         syntheticClickSender.releaseCommandShiftIfNeeded()
         forceClickPressureMonitor.stop()
         trackpadSettingsController.restoreSynchronouslyOnTerminate()
     }
     
     deinit {
+        permissionRefreshTimer?.invalidate()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         syntheticClickSender.releaseCommandShiftIfNeeded()
         forceClickPressureMonitor.stop()
